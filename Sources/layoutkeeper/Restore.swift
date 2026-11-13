@@ -14,10 +14,15 @@ struct RestoreResult {
     var waitingIdx: [Int] = []
     /// Windows on a visible desktop that could not be reached (hidden app, or the app is not answering).
     var unreachable = 0
+    /// Apps whose windows were sent back to the desktop they were saved on.
+    var respaced: [String] = []
+    /// Windows left alone for now because their desktop is still parked on another display.
+    var deferred = 0
     /// Nothing could be read at all although windows exist: the screen is locked or apps are still waking.
     var blind: Bool { moved + alreadyInPlace + failed == 0 && (!waiting.isEmpty || unreachable > 0) }
     var summary: String {
         var s = "moved \(moved), in place \(alreadyInPlace), failed \(failed)"
+        if !respaced.isEmpty { s += ", sent back to their desktop: \(respaced.joined(separator: ","))" }
         if !waiting.isEmpty { s += ", \(waiting.count) on other Spaces (placed when you switch there)" }
         if !launched.isEmpty { s += ", launched \(launched.joined(separator: ","))" }
         if !missingApps.isEmpty { s += ", not running: \(missingApps.joined(separator: ","))" }
@@ -26,6 +31,7 @@ struct RestoreResult {
     /// One-line version for the menu bar.
     var short: String {
         var parts = ["\(moved) moved", "\(alreadyInPlace) in place"]
+        if !respaced.isEmpty { parts.append("\(respaced.count) app\(respaced.count == 1 ? "" : "s") sent back to their desktop") }
         if failed > 0 { parts.append("\(failed) failed") }
         if !waiting.isEmpty { parts.append("\(waiting.count) waiting on other desktops") }
         if !missingNames.isEmpty { parts.append("\(missingNames.count) app\(missingNames.count == 1 ? "" : "s") not running") }
@@ -42,8 +48,10 @@ enum Restore {
 
     /// - onlyIndices: positions in `layout.windows` to act on. Matching still considers every record, so a
     ///   window that already has its place is never handed a leftover record.
+    /// - toDesktops: also send apps back to the desktop they were saved on (not for place-on-launch: an app the
+    ///   user just opened should stay in front of them).
     static func apply(_ layout: Layout, config: Config, onlyBundle: String? = nil, onlyIndices: Set<Int>? = nil,
-                      launchMissing: Bool = false, dryRun: Bool = false) -> RestoreResult {
+                      launchMissing: Bool = false, dryRun: Bool = false, toDesktops: Bool = false) -> RestoreResult {
         var result = RestoreResult()
         let displays = Displays.current()
         // `launchMissing` spins the run loop; a timer firing meanwhile must not start a second restore inside this one.
@@ -86,10 +94,26 @@ enum Restore {
             }
         }
 
-        let real = Dictionary(grouping: WindowList.real(), by: \.pid)
+        var real = Dictionary(grouping: WindowList.real(), by: \.pid)
         let visibleSpaces = PrivateAPI.visibleSpaces
-        for app in apps {
+        let spaceIndex = PrivateAPI.spaceIndex()
+        let displayOfUUID = Displays.keysByUUID()
+        for var app in apps {
             guard let recs = saved[app.bundleID] else { continue }
+            if toDesktops && config.moveWindowsToDesktops && onlyIndices == nil,
+               let target = homeSpace(recs.map(\.element), spaceIndex: spaceIndex) {
+                let mine = real[app.app.processIdentifier] ?? []
+                // Only when every window sits on an ordinary desktop: full-screen windows own their Space.
+                if !mine.isEmpty, mine.allSatisfy({ spaceIndex[$0.space]?.userDesktop == true }), mine.contains(where: { $0.space != target }) {
+                    result.respaced.append(app.name)
+                    if !dryRun, PrivateAPI.moveApp(pid: app.app.processIdentifier, toSpace: target) {
+                        Log.info("\(app.name): moved back to its desktop")
+                        usleep(250_000)
+                        real = Dictionary(grouping: WindowList.real(), by: \.pid)
+                        if let fresh = AX.apps(ignore: [], only: app.bundleID).first(where: { $0.app.processIdentifier == app.app.processIdentifier }) { app = fresh }
+                    }
+                }
+            }
             let current = app.windows.filter { !$0.fullscreen }
             let pairs = matchIndices(saved: recs.map(\.element), current: current)
             // Records left over: as many as the app has windows we could not reach are waiting for their window;
@@ -107,6 +131,15 @@ enum Restore {
                 let rec = recs[p.si].element, win = current[p.ci]
                 if let onlyIndices, !onlyIndices.contains(recs[p.si].offset) { continue }
                 let target = onScreen(targetFrame(rec, displays: byKey), displays: displays)
+                // A window on a desktop that is not showing and is still parked on another display must wait:
+                // moving it across now would pull it out of its desktop onto whatever that display shows.
+                let space = win.space != 0 ? win.space : (real[win.pid]?.first { $0.id == win.windowID }?.space ?? 0)
+                if let home = spaceIndex[space], !visibleSpaces.contains(space), let dk = displayOfUUID[home.display],
+                   byKey[rec.displayKey] != nil, dk != rec.displayKey {
+                    result.deferred += 1
+                    result.waiting.append(rec); result.waitingIdx.append(recs[p.si].offset)
+                    continue
+                }
                 var inPlace = AX.approx(win.frame, target)
                 if !inPlace, let c = clamped[win.windowID], c.want == target.size, AX.approx(CGRect(origin: target.origin, size: c.got), win.frame) {
                     inPlace = true
@@ -143,6 +176,21 @@ enum Restore {
             return rec.rel.cg.offsetBy(dx: d.frame.x, dy: d.frame.y)
         }
         return rec.abs.cg
+    }
+
+    /// The one desktop all of an app's saved windows were on, if it still exists. Apps spread over several
+    /// desktops are left alone: the system call moves all of an app's windows together.
+    static func homeSpace(_ recs: [WindowRecord], spaceIndex: [UInt64: (key: String, display: String, userDesktop: Bool)]) -> UInt64? {
+        let live = recs.filter { $0.stale != true }
+        let use = live.isEmpty ? recs : live
+        var ids = Set<UInt64>()
+        for r in use {
+            if let key = r.spaceKey, let hit = spaceIndex.first(where: { $0.value.key == key }) { ids.insert(hit.key) }
+            else if r.spaceKey == nil, r.boot == Boot.id, let s = r.space, spaceIndex[s] != nil { ids.insert(s) }
+            else { return nil }   // a window whose desktop is gone or unknown: do not guess
+        }
+        guard ids.count == 1, let id = ids.first, spaceIndex[id]?.userDesktop == true else { return nil }
+        return id
     }
 
     /// A saved frame can end up outside every display (resolution changed, display swapped for a smaller one).

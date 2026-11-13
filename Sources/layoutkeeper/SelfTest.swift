@@ -151,6 +151,17 @@ enum SelfTest {
         let peek = CGRect(x: 1728 + 2560 - 200, y: 0, width: 800, height: 600)
         check(Restore.onScreen(peek, displays: displays) == peek, "a window hanging off the edge with its title bar reachable is left alone")
 
+        // which desktop an app goes back to
+        let spaces: [UInt64: (key: String, display: String, userDesktop: Bool)] = [5: ("A", "d1", true), 6: ("B", "d1", true), 7: ("F", "d1", false)]
+        func on(_ key: String?, space: UInt64? = nil) -> WindowRecord { var r = mk("b", "w", id: 1); r.spaceKey = key; r.space = space; return r }
+        check(Restore.homeSpace([on("A"), on("A")], spaceIndex: spaces) == 5, "an app saved on one desktop goes back to it")
+        check(Restore.homeSpace([on("A"), on("B")], spaceIndex: spaces) == nil, "an app spread over desktops is left alone")
+        check(Restore.homeSpace([on("gone")], spaceIndex: spaces) == nil, "a desktop that no longer exists is not guessed")
+        check(Restore.homeSpace([on("F")], spaceIndex: spaces) == nil, "full-screen Spaces are never a target")
+        check(Restore.homeSpace([on(nil, space: 6)], spaceIndex: spaces) == 6, "records from before desktop UUIDs fall back to the id within the same boot")
+        var otherBoot = on(nil, space: 6); otherBoot.boot = 1
+        check(Restore.homeSpace([otherBoot], spaceIndex: spaces) == nil, "a Space id from another boot is ignored")
+
         // store round trip
         let fp = "selftest-\(UUID().uuidString.prefix(6))"
         var l = new; l.fingerprint = fp

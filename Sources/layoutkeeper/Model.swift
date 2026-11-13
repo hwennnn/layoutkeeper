@@ -37,6 +37,8 @@ struct WindowRecord: Codable {
     var stale: Bool?
     /// Boot session `windowID` belongs to. Window ids are reused after a restart, so an id from another boot means nothing.
     var boot: Int? = nil
+    /// UUID of the desktop (Space) the window was on. Unlike `space` it survives restarts and reconnects.
+    var spaceKey: String? = nil
 
     /// The window id, if it can still refer to a live window.
     var liveID: UInt32? { boot == Boot.id ? windowID : nil }
@@ -112,6 +114,8 @@ struct Config: Codable {
     var launchMissingApps = false
     /// Restore the pinned layout instead of the automatically remembered one.
     var preferPinned = false
+    /// On restore, send an app's windows back to the desktop they were saved on.
+    var moveWindowsToDesktops = true
     var menuBarIcon = true
     var pollSeconds = 5.0
     var autosaveEveryTicks = 3
@@ -127,6 +131,7 @@ struct Config: Codable {
         placeOnLaunch = try c.decodeIfPresent(Bool.self, forKey: .placeOnLaunch) ?? true
         launchMissingApps = try c.decodeIfPresent(Bool.self, forKey: .launchMissingApps) ?? false
         preferPinned = try c.decodeIfPresent(Bool.self, forKey: .preferPinned) ?? false
+        moveWindowsToDesktops = try c.decodeIfPresent(Bool.self, forKey: .moveWindowsToDesktops) ?? true
         menuBarIcon = try c.decodeIfPresent(Bool.self, forKey: .menuBarIcon) ?? true
         pollSeconds = try c.decodeIfPresent(Double.self, forKey: .pollSeconds) ?? 5.0
         autosaveEveryTicks = try c.decodeIfPresent(Int.self, forKey: .autosaveEveryTicks) ?? 3

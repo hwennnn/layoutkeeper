@@ -23,6 +23,10 @@ Requires macOS 13 or later and the Swift toolchain (Xcode or the Command Line To
   remembers which desktops (Spaces) belong on which monitor and, on reconnect, drives Mission Control
   to drag them back, removes the empty desktop macOS made up, and adds any that are missing. Desktops
   with windows are never removed. Toggle with **Move Desktops Back to Their Monitor** or `restoreDesktops`.
+- **Windows go back to their desktop.** If an app's windows ended up on a different desktop than the
+  one they were saved on (macOS does this when a monitor goes away), a restore sends the app back
+  without switching the desktop you are looking at. Toggle with **Move Windows Back to Their Desktop**
+  or `moveWindowsToDesktops`.
 - **Place on launch.** When an app that is part of the layout is opened (or shows its first window
   again), its windows are moved to where they belong.
 - **Arrangement-proof.** Frames are stored relative to the display they were on, so a monitor moved
@@ -95,6 +99,7 @@ so they work from any terminal.
 | `autosave` | `true` | keep an automatic layout per monitor set |
 | `placeOnLaunch` | `true` | move a newly opened app's windows into place |
 | `launchMissingApps` | `false` | open apps that are in the layout but not running |
+| `moveWindowsToDesktops` | `true` | on restore, send an app's windows back to the desktop they were saved on |
 | `preferPinned` | `false` | restore the pinned layout instead of how the windows were last left |
 | `menuBarIcon` | `true` | show the menu bar item |
 | `pollSeconds` | `5` | poll interval; autosave runs every `autosaveEveryTicks` polls |
@@ -137,8 +142,10 @@ that need it are executed by the daemon.
 
 ## Limitations
 
-- Windows are moved within their current Space; they are not moved between Spaces. Most windows on
-  other Spaces are placed right away; the few that cannot be reached there are placed when you switch
+- macOS only lets an app's windows be moved to another desktop all together. An app whose saved
+  windows were all on one desktop is sent back there; an app spread over several desktops keeps its
+  windows on the desktops they are on, and only their positions are restored.
+- A few windows cannot be reached while they are on another Space; they are placed when you switch
   to their Space (within 30 minutes of the restore).
 - A window whose app enforces its own size is moved to the saved position and keeps that size.
 - Full-screen windows are left alone.

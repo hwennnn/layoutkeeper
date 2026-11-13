@@ -111,7 +111,7 @@ case "restore":
     let chosen = flag("--auto") ? file.auto.map { ($0, false) } : (flag("--pinned") ? file.pinned.map { ($0, true) } : file.preferred(pinnedFirst: config.preferPinned))
     guard let (layout, isPinned) = chosen else { Log.error("No matching layout saved for [\(fp)]."); exit(1) }
     let r = Restore.apply(layout, config: config, onlyBundle: opt("--app"),
-                          launchMissing: flag("--launch") || config.launchMissingApps, dryRun: flag("--dry-run"))
+                          launchMissing: flag("--launch") || config.launchMissingApps, dryRun: flag("--dry-run"), toDesktops: true)
     print("\(flag("--dry-run") ? "Would restore" : "Restored") \(layout.label) (\(isPinned ? "pinned" : "auto"), saved \(fmtDate(layout.savedAt))): \(r.summary)")
     exit(r.failed > 0 ? 3 : 0)
   }

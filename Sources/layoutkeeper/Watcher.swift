@@ -234,7 +234,7 @@ final class Watcher {
                 if run.waits > 60 { finish() } else { again(in: 5) }
                 return
             }
-            run.calm = r.moved == 0 && r.failed == 0 ? run.calm + 1 : 0
+            run.calm = r.moved == 0 && r.failed == 0 && r.respaced.isEmpty && r.deferred == 0 ? run.calm + 1 : 0
             run.pass += 1
             if run.calm >= 2 || run.pass > Self.restoreGaps.count { finish() } else { again(in: Self.restoreGaps[run.pass - 1]) }
         }
@@ -282,14 +282,15 @@ final class Watcher {
         }
         let (layout, isPinned) = chosen
         suspendUntil = max(suspendUntil, Date().addingTimeInterval(3))
-        let r = Restore.apply(layout, config: config, launchMissing: config.launchMissingApps && !quiet)
-        if !quiet || r.moved > 0 || r.failed > 0 {
+        let r = Restore.apply(layout, config: config, launchMissing: config.launchMissingApps && !quiet, toDesktops: true)
+        if !quiet || r.moved > 0 || r.failed > 0 || !r.respaced.isEmpty {
             var details = ["After: \(reason)", r.short]
             if !r.waiting.isEmpty { details.append("Waiting for you to visit their desktop: " + Self.names(r.waiting)) }
             if !r.missingNames.isEmpty { details.append("Not running: " + r.missingNames.joined(separator: ", ")) }
             if !r.launched.isEmpty { details.append("Opened: " + r.launched.joined(separator: ", ")) }
             let suffix = isPinned ? " (pinned layout)" : ""
             let title = r.failed > 0 ? "\(r.failed) window\(r.failed == 1 ? "" : "s") would not move"
+                : r.moved == 0 && !r.respaced.isEmpty ? "Sent \(r.respaced.count) app\(r.respaced.count == 1 ? "" : "s") back to \(r.respaced.count == 1 ? "its" : "their") desktop"
                 : r.moved > 0 ? "Moved \(r.moved) window\(r.moved == 1 ? "" : "s") back"
                 : "Everything is in place"
             note(title + suffix, details: details)
@@ -451,7 +452,7 @@ final class Watcher {
             guard let (layout, isPinned) = chosen else { return "ERROR No matching layout saved for [\(fp)]." }
             suspendUntil = Date().addingTimeInterval(3)
             let r = Restore.apply(layout, config: config, onlyBundle: opt("--app"),
-                                  launchMissing: has("--launch") || config.launchMissingApps, dryRun: has("--dry-run"))
+                                  launchMissing: has("--launch") || config.launchMissingApps, dryRun: has("--dry-run"), toDesktops: true)
             if !has("--dry-run") && opt("--app") == nil { rememberPending(layout, r); lastDigest = "" }
             windowCounts = WindowList.counts()
             return "\(has("--dry-run") ? "Would restore" : "Restored") \(layout.label) (\(isPinned ? "pinned" : "auto")): \(r.summary)"
@@ -494,6 +495,13 @@ final class Watcher {
             case "display": displayChanged(reason: "reconfiguration (simulated)"); return "simulated display change"
             case "lock": Session.pretendLocked = true; return "pretending the screen is locked"
             case "unlock": Session.pretendLocked = false; return "screen no longer pretend-locked"
+            case "respace":
+                // Send an app to some other desktop, as macOS does when a monitor goes away.
+                guard c.args.count >= 2, let ra = NSRunningApplication.runningApplications(withBundleIdentifier: c.args[1]).first else { return "ERROR usage: simulate respace <bundleID>" }
+                let index = PrivateAPI.spaceIndex()
+                let here = Set(WindowList.real().filter { $0.pid == ra.processIdentifier }.map(\.space))
+                guard let other = index.filter({ $0.value.userDesktop && !here.contains($0.key) }).keys.sorted().first else { return "ERROR no other desktop" }
+                return PrivateAPI.moveApp(pid: ra.processIdentifier, toSpace: other) ? "moved to space \(other)" : "ERROR could not move"
             default: return "ERROR usage: simulate wake|display|lock|unlock"
             }
         case "autosave":

@@ -6,6 +6,7 @@ enum Capture {
     static func layout(config: Config, displays: [DisplayInfo]? = nil) -> Layout {
         let displays = displays ?? Displays.current()
         var recs: [WindowRecord] = []
+        let spaceIndex = PrivateAPI.spaceIndex()
         for app in AX.apps(ignore: Set(config.ignoreBundleIDs)) {
             for w in app.windows where !w.fullscreen && w.frame.width >= 40 && w.frame.height >= 40 {
                 guard let d = Displays.displayFor(w.frame, in: displays) else { continue }
@@ -16,7 +17,8 @@ enum Capture {
                                          windowID: w.windowID == 0 ? nil : w.windowID,
                                          space: w.space == 0 ? nil : w.space,
                                          desktop: w.space == 0 ? nil : PrivateAPI.desktopNumber(of: w.space),
-                                         lastSeen: Date(), stale: nil, boot: Boot.id))
+                                         lastSeen: Date(), stale: nil, boot: Boot.id,
+                                         spaceKey: spaceIndex[w.space]?.key))
             }
         }
         return Layout(fingerprint: Displays.fingerprint(displays), label: Displays.label(displays),

@@ -12,6 +12,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
     private static let toggles: [(String, String)] = [
         ("restoreOnDisplayChange", "Restore When Monitors Change"),
         ("restoreDesktops", "Move Desktops Back to Their Monitor"),
+        ("moveWindowsToDesktops", "Move Windows Back to Their Desktop"),
         ("autosave", "Remember Layout Automatically"),
         ("preferPinned", "Always Restore the Pinned Layout"),
         ("placeOnLaunch", "Place Apps When They Open"),
@@ -205,7 +206,8 @@ final class MenuBar: NSObject, NSMenuDelegate {
 
     private static func boolValues(_ c: Config) -> [String: Bool] {
         ["restoreOnDisplayChange": c.restoreOnDisplayChange, "restoreDesktops": c.restoreDesktops, "autosave": c.autosave,
-         "placeOnLaunch": c.placeOnLaunch, "launchMissingApps": c.launchMissingApps, "preferPinned": c.preferPinned]
+         "placeOnLaunch": c.placeOnLaunch, "launchMissingApps": c.launchMissingApps, "preferPinned": c.preferPinned,
+         "moveWindowsToDesktops": c.moveWindowsToDesktops]
     }
 
     private static func when(_ d: Date) -> String {

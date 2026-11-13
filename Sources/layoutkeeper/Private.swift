@@ -42,6 +42,32 @@ enum PrivateAPI {
         return found
     }
 
+    /// Space id -> (UUID key, display UUID, is a user desktop) for every Space that exists now.
+    static func spaceIndex() -> [UInt64: (key: String, display: String, userDesktop: Bool)] {
+        var out: [UInt64: (key: String, display: String, userDesktop: Bool)] = [:]
+        for (uuid, spaces) in managedSpaces() { for s in spaces { out[s.id] = (s.key, uuid, s.userDesktop) } }
+        return out
+    }
+
+    private typealias AssignFn = @convention(c) (Int32, pid_t, UInt64) -> Int32
+    /// Looked up at run time, so a macOS release without it only loses this feature.
+    private static let assign: AssignFn? = {
+        guard let lib = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY),
+              let sym = dlsym(lib, "SLSProcessAssignToSpace") else { return nil }
+        return unsafeBitCast(sym, to: AssignFn.self)
+    }()
+
+    /// Move every window of an app to one desktop, without switching the desktop on screen. The assignment
+    /// is cleared again right away, so windows the app opens later appear wherever the user is.
+    @discardableResult
+    static func moveApp(pid: pid_t, toSpace sid: UInt64) -> Bool {
+        guard let assign, sid != 0 else { return false }
+        let ok = assign(CGSMainConnectionID(), pid, sid) == 0
+        usleep(150_000)
+        _ = assign(CGSMainConnectionID(), pid, 0)
+        return ok
+    }
+
     static var activeSpace: UInt64 { CGSGetActiveSpace(CGSMainConnectionID()) }
 
     /// The Space each display is showing right now.

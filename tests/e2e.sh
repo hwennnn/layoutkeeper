@@ -128,6 +128,26 @@ grep -q "moved 0, in place 1" <<<"$OUT" && ok "remaining window keeps its own pl
 [ "$(frame_of $TE)" = "$KEEP" ] && ok "remaining window untouched" || bad "remaining window moved: want $KEEP got $(frame_of $TE)"
 rm -f "$DOC2"
 
+echo "== desktops: an app that ended up on another desktop is sent back"
+space_of() { "$LK" capture --via-daemon | python3 -c "
+import json,sys; l=json.load(sys.stdin)
+print(' '.join(str(w.get('space')) for w in l['windows'] if w['bundleID']=='$1'))"; }
+"$LK" save >/dev/null; sleep 1
+HOME_SPACE=$(space_of $TE); HOME_FRAME=$(frame_of $TE)
+OUT=$("$LK" simulate respace "$TE"); echo "$OUT"
+if grep -q "no other desktop" <<<"$OUT"; then
+  echo "skip (one desktop)"
+else
+  sleep 1
+  [ "$(space_of $TE)" != "$HOME_SPACE" ] && ok "TextEdit is on another desktop" || bad "could not move TextEdit to another desktop"
+  "$LK" restore --app "$TE" >/dev/null; sleep 1
+  [ "$(space_of $TE)" = "$HOME_SPACE" ] && ok "restore sent it back to its desktop" || bad "still on the wrong desktop: want $HOME_SPACE got $(space_of $TE)"
+  [ "$(frame_of $TE)" = "$HOME_FRAME" ] && ok "and to its position" || bad "wrong position after desktop move: want $HOME_FRAME got $(frame_of $TE)"
+  "$LK" simulate respace "$TE" >/dev/null; "$LK" simulate wake >/dev/null; sleep 9
+  [ "$(space_of $TE)" = "$HOME_SPACE" ] && ok "wake also sends it back" || bad "wake left it on the wrong desktop"
+  for i in $(seq 1 30); do "$LK" ping | grep -q restoring || break; sleep 2; done
+fi
+
 echo "== autosave"
 "$LK" nudge "$TE" 50 50 >/dev/null; sleep 1
 kill -USR2 "$(sed -n 's/.*pong pid \([0-9]*\).*/\1/p' <<<"$P")"; sleep 2

@@ -9,6 +9,7 @@ enum ConfigDocs {
         Entry(key: "autosave", type: "bool", help: "Continuously remember the current layout per monitor set (\"how I left it\")."),
         Entry(key: "placeOnLaunch", type: "bool", help: "When an app opens (or shows its first window again), move its windows to where they were."),
         Entry(key: "launchMissingApps", type: "bool", help: "On restore, open apps that are part of the layout but not running."),
+        Entry(key: "moveWindowsToDesktops", type: "bool", help: "On restore, send an app's windows back to the desktop (Space) they were saved on."),
         Entry(key: "preferPinned", type: "bool", help: "Restore the pinned layout instead of how the windows were last left."),
         Entry(key: "menuBarIcon", type: "bool", help: "Show the LayoutKeeper menu bar item."),
         Entry(key: "pollSeconds", type: "number", help: "Seconds between checks for new windows / config changes."),
