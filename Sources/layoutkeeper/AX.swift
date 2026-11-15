@@ -23,6 +23,8 @@ struct AXApp {
     let app: NSRunningApplication
     let element: AXUIElement
     var windows: [AXWindow]
+    /// False when the app did not answer in time (busy or hung); its windows are unknown, not absent.
+    var answered = true
     var bundleID: String { app.bundleIdentifier ?? "pid.\(app.processIdentifier)" }
     var name: String { app.localizedName ?? bundleID }
 }
@@ -91,10 +93,12 @@ enum AX {
 
     /// Apps that did not answer, and when. They are left alone for a while so one hung app cannot stall every pass.
     private static var unresponsive: [pid_t: Date] = [:]
+    private static var unresponsiveLogged: [pid_t: Date] = [:]
     private static var timeoutSet = false
 
     /// Regular (dock-visible) apps and their standard windows.
-    static func apps(ignore: Set<String>, only: String? = nil) -> [AXApp] {
+    /// - retryAfter: how long an app that did not answer is left alone (shorter during a restore).
+    static func apps(ignore: Set<String>, only: String? = nil, retryAfter: TimeInterval = 20) -> [AXApp] {
         if !timeoutSet {
             // Applies to every element, including the ones made from remote tokens (default is 6 seconds per call).
             AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 1.5)
@@ -108,15 +112,19 @@ enum AX {
             if let only, only != bid { continue }
             let el = AXUIElementCreateApplication(ra.processIdentifier)
             AXUIElementSetMessagingTimeout(el, 1.5)
-            if let t = unresponsive[ra.processIdentifier], Date().timeIntervalSince(t) < 20 {
-                out.append(AXApp(app: ra, element: el, windows: []))
+            if let t = unresponsive[ra.processIdentifier], Date().timeIntervalSince(t) < retryAfter {
+                out.append(AXApp(app: ra, element: el, windows: [], answered: false))
                 continue
             }
             var role: CFTypeRef?
             if AXUIElementCopyAttributeValue(el, kAXRoleAttribute as CFString, &role) == .cannotComplete {
-                if unresponsive[ra.processIdentifier] == nil { Log.info("\(ra.localizedName ?? bid) is not answering; skipping it for now") }
+                // Busy apps do this all day; one line an hour per app is enough.
+                if Date().timeIntervalSince(unresponsiveLogged[ra.processIdentifier] ?? .distantPast) > 3600 {
+                    unresponsiveLogged[ra.processIdentifier] = Date()
+                    Log.info("\(ra.localizedName ?? bid) is busy and not answering; its windows are skipped until it does")
+                }
                 unresponsive[ra.processIdentifier] = Date()
-                out.append(AXApp(app: ra, element: el, windows: []))
+                out.append(AXApp(app: ra, element: el, windows: [], answered: false))
                 continue
             }
             unresponsive[ra.processIdentifier] = nil

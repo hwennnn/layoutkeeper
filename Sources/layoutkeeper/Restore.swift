@@ -18,6 +18,8 @@ struct RestoreResult {
     var respaced: [String] = []
     /// Windows left alone for now because their desktop is still parked on another display.
     var deferred = 0
+    /// Apps in the layout that were too busy to answer; their windows still need placing.
+    var busy: [String] = []
     /// Nothing could be read at all although windows exist: the screen is locked or apps are still waking.
     var blind: Bool { moved + alreadyInPlace + failed == 0 && (!waiting.isEmpty || unreachable > 0) }
     var summary: String {
@@ -34,6 +36,7 @@ struct RestoreResult {
         if !respaced.isEmpty { parts.append("\(respaced.count) app\(respaced.count == 1 ? "" : "s") sent back to their desktop") }
         if failed > 0 { parts.append("\(failed) failed") }
         if !waiting.isEmpty { parts.append("\(waiting.count) waiting on other desktops") }
+        if !busy.isEmpty { parts.append("\(busy.joined(separator: ", ")) busy, will retry") }
         if !missingNames.isEmpty { parts.append("\(missingNames.count) app\(missingNames.count == 1 ? "" : "s") not running") }
         return parts.joined(separator: " · ")
     }
@@ -67,7 +70,7 @@ enum Restore {
 
         // Apps that had windows when the layout was saved; apps only remembered from earlier are not "missing".
         let open = Set(saved.filter { $0.value.contains { $0.element.stale != true } }.keys)
-        var apps = AX.apps(ignore: Set(config.ignoreBundleIDs), only: onlyBundle)
+        var apps = AX.apps(ignore: Set(config.ignoreBundleIDs), only: onlyBundle, retryAfter: 2)
         var running = Set(apps.map(\.bundleID))
 
         if launchMissing && !dryRun {
@@ -100,6 +103,7 @@ enum Restore {
         let displayOfUUID = Displays.keysByUUID()
         for var app in apps {
             guard let recs = saved[app.bundleID] else { continue }
+            if !app.answered, recs.contains(where: { $0.element.stale != true }) { result.busy.append(app.name) }
             if toDesktops && config.moveWindowsToDesktops && onlyIndices == nil,
                let target = homeSpace(recs.map(\.element), spaceIndex: spaceIndex) {
                 let mine = real[app.app.processIdentifier] ?? []

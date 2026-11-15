@@ -29,7 +29,7 @@ enum Capture {
     /// but tracks frames + minimized state. Records carried over from other Spaces or closed apps are excluded.
     static func digest(_ layout: Layout, visibleIDs: Set<UInt32>? = nil) -> String {
         let parts = layout.windows.filter { $0.stale != true && (visibleIDs == nil || $0.windowID.map { visibleIDs!.contains($0) } ?? true) }
-            .map { "\($0.bundleID)|\($0.abs.short)|\($0.minimized)" }.sorted()
+            .map { "\($0.bundleID)|\($0.abs.short)|\($0.minimized)|\($0.spaceKey ?? "")" }.sorted()
             + (layout.desktops ?? [:]).sorted { $0.key < $1.key }.map { "desktops \($0.key): \($0.value.joined(separator: ","))" }
         let d = SHA256.hash(data: Data(parts.joined(separator: "\n").utf8))
         return d.prefix(8).map { String(format: "%02x", $0) }.joined()
@@ -41,8 +41,19 @@ enum Capture {
         let fresh = layout(config: config)
         let real = WindowList.real()
         let running = Set(NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }.compactMap(\.bundleIdentifier))
-        let merged = merge(new: fresh, old: Store.load(fresh.fingerprint)?.auto, windowCounts: WindowList.counts(real),
+        var merged = merge(new: fresh, old: Store.load(fresh.fingerprint)?.auto, windowCounts: WindowList.counts(real),
                            existingIDs: Set(real.map(\.id)), running: running)
+        // A window that could not be read (its app was busy) can still have changed desktop: that much is known
+        // without asking the app, and a stale desktop would send the window "back" to where it no longer belongs.
+        let spaceOf = Dictionary(real.map { ($0.id, $0.space) }, uniquingKeysWith: { a, _ in a })
+        let index = PrivateAPI.spaceIndex()
+        for i in merged.windows.indices {
+            guard merged.windows[i].stale != true, let id = merged.windows[i].liveID, let s = spaceOf[id], let key = index[s]?.key,
+                  merged.windows[i].spaceKey != key else { continue }
+            merged.windows[i].space = s
+            merged.windows[i].spaceKey = key
+            merged.windows[i].desktop = PrivateAPI.desktopNumber(of: s)
+        }
         return (fresh, merged)
     }
 

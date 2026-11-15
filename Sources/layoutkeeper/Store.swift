@@ -111,6 +111,27 @@ enum Store {
         try save(file)
     }
 
+    /// For a monitor set with nothing saved yet: the saved layout that shares the most displays with it, cut down
+    /// to the windows on those displays. Better than leaving windows wherever macOS dropped them.
+    static func borrowed(for displays: [DisplayInfo], pinnedFirst: Bool) -> (layout: Layout, from: String)? {
+        let keys = Set(displays.map(\.key))
+        let fp = Displays.fingerprint(displays)
+        var best: (layout: Layout, from: String, shared: Int)?
+        for f in list() where f.fingerprint != fp {
+            guard let l = f.preferred(pinnedFirst: pinnedFirst)?.layout else { continue }
+            let shared = Set(l.displays.map(\.key)).intersection(keys).count
+            guard shared > 0 else { continue }
+            if best == nil || shared > best!.shared || (shared == best!.shared && l.savedAt > best!.layout.savedAt) { best = (l, f.label, shared) }
+        }
+        guard var l = best?.layout, let from = best?.from else { return nil }
+        l.windows = l.windows.filter { keys.contains($0.displayKey) }
+        l.fingerprint = fp
+        l.label = Displays.label(displays)
+        l.displays = displays
+        l.desktops = nil
+        return l.open.isEmpty ? nil : (l, from)
+    }
+
     /// One-time clean-up of files written by older versions (see `Layout.tidied`).
     static func tidyAll() {
         for var f in list() where (f.schema ?? 1) < LayoutFile.currentSchema {

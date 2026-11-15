@@ -204,7 +204,7 @@ final class Watcher {
         var pass = 0, calm = 0, waits = 0
         init(gen: Int, reason: String) { self.gen = gen; self.reason = reason }
     }
-    private static let restoreGaps: [TimeInterval] = [3, 5, 8, 12, 15]
+    private static let restoreGaps: [TimeInterval] = [3, 5, 8, 12, 15, 20, 30]
 
     private func restoreStep(_ run: RestoreRun) {
         guard run.gen == restoreGen else { return }
@@ -234,7 +234,7 @@ final class Watcher {
                 if run.waits > 60 { finish() } else { again(in: 5) }
                 return
             }
-            run.calm = r.moved == 0 && r.failed == 0 && r.respaced.isEmpty && r.deferred == 0 ? run.calm + 1 : 0
+            run.calm = r.moved == 0 && r.failed == 0 && r.respaced.isEmpty && r.deferred == 0 && r.busy.isEmpty ? run.calm + 1 : 0
             run.pass += 1
             if run.calm >= 2 || run.pass > Self.restoreGaps.count { finish() } else { again(in: Self.restoreGaps[run.pass - 1]) }
         }
@@ -273,9 +273,14 @@ final class Watcher {
     func restoreCurrent(reason: String, pinned: Bool? = nil, quiet: Bool = false) -> RestoreResult? {
         let fp = Displays.fingerprint(Displays.current())
         let file = Store.load(fp)
-        let pick: (Layout, Bool)? = pinned == true ? file?.pinned.map { ($0, true) }
+        var pick: (Layout, Bool)? = pinned == true ? file?.pinned.map { ($0, true) }
             : pinned == false ? file?.auto.map { ($0, false) }
             : file?.preferred(pinnedFirst: config.preferPinned).map { ($0.layout, $0.pinned) }
+        var borrowedFrom: String?
+        if pick == nil, pinned == nil, let b = Store.borrowed(for: Displays.current(), pinnedFirst: config.preferPinned) {
+            pick = (b.layout, false)
+            borrowedFrom = b.from
+        }
         guard let chosen = pick else {
             if !quiet { note("Nothing saved for this monitor set yet", details: ["Trigger: \(reason)"]) }
             return nil
@@ -285,6 +290,7 @@ final class Watcher {
         let r = Restore.apply(layout, config: config, launchMissing: config.launchMissingApps && !quiet, toDesktops: true)
         if !quiet || r.moved > 0 || r.failed > 0 || !r.respaced.isEmpty {
             var details = ["After: \(reason)", r.short]
+            if let borrowedFrom { details.append("First time on these monitors: used the layout from \(borrowedFrom)") }
             if !r.waiting.isEmpty { details.append("Waiting for you to visit their desktop: " + Self.names(r.waiting)) }
             if !r.missingNames.isEmpty { details.append("Not running: " + r.missingNames.joined(separator: ", ")) }
             if !r.launched.isEmpty { details.append("Opened: " + r.launched.joined(separator: ", ")) }
@@ -370,7 +376,7 @@ final class Watcher {
             Log.debug("autosave skipped: no window could be read")
             return
         }
-        let digest = Capture.digest(layout)
+        let digest = Capture.digest(snap.merged)   // merged: also notices a window moving to another desktop
         if !force {
             if digest == lastDigest { return }
             if digest != pendingDigest { pendingDigest = digest; return }  // wait until stable across two polls

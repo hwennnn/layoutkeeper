@@ -162,6 +162,12 @@ enum SelfTest {
         var otherBoot = on(nil, space: 6); otherBoot.boot = 1
         check(Restore.homeSpace([otherBoot], spaceIndex: spaces) == nil, "a Space id from another boot is ignored")
 
+        // moving a window to another desktop is a change worth saving
+        var deskA = mk("b", "w", id: 1); deskA.spaceKey = "A"
+        var deskB = deskA; deskB.spaceKey = "B"
+        func lay(_ w: WindowRecord) -> Layout { Layout(fingerprint: "f", label: "l", displays: displays, savedAt: Date(), windows: [w]) }
+        check(Capture.digest(lay(deskA)) != Capture.digest(lay(deskB)), "a window changing desktop changes the digest")
+
         // store round trip
         let fp = "selftest-\(UUID().uuidString.prefix(6))"
         var l = new; l.fingerprint = fp
